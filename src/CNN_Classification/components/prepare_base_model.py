@@ -6,43 +6,37 @@ from src.CNN_Classification.entity.config_entity import PrepareBaseModelConfig
 from pathlib import Path
 
 
-
 class PrepareBaseModel:
-    def __init__(self, config: PrepareBaseModelConfig):
+    def __init__(self, config):
         self.config = config
 
-    
     def get_base_model(self):
-        self.model = tf.keras.applications.vgg16.VGG16(
+        """Loads the VGG16 base model with pre-trained weights."""
+        self.model = tf.keras.applications.VGG16(
             input_shape=self.config.params_image_size,
             weights=self.config.params_weights,
             include_top=self.config.params_include_top
         )
-
-        self.save_model(path=self.config.base_model_path, model=self.model)
-
-    
+        self.save_model(self.config.base_model_path, self.model)
 
     @staticmethod
     def _prepare_full_model(model, classes, freeze_all, freeze_till, learning_rate):
+        """Adds custom layers on top of the VGG16 model."""
         if freeze_all:
             for layer in model.layers:
-                model.trainable = False
-        elif (freeze_till is not None) and (freeze_till > 0):
+                layer.trainable = False
+        elif freeze_till is not None and freeze_till > 0:
             for layer in model.layers[:-freeze_till]:
-                model.trainable = False
+                layer.trainable = False
 
+        # Add custom layers
         flatten_in = tf.keras.layers.Flatten()(model.output)
-        prediction = tf.keras.layers.Dense(
-            units=classes,
-            activation="softmax"
-        )(flatten_in)
+        dropout = tf.keras.layers.Dropout(0.3)(flatten_in)
+        dense = tf.keras.layers.Dense(128, activation="relu")(dropout)
+        dropout = tf.keras.layers.Dropout(0.2)(dense)
+        prediction = tf.keras.layers.Dense(units=classes, activation="softmax")(dropout)
 
-        full_model = tf.keras.models.Model(
-            inputs=model.input,
-            outputs=prediction
-        )
-
+        full_model = tf.keras.models.Model(inputs=model.input, outputs=prediction)
         full_model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
             loss=tf.keras.losses.SparseCategoricalCrossentropy(),
@@ -51,9 +45,9 @@ class PrepareBaseModel:
 
         full_model.summary()
         return full_model
-    
-    
+
     def update_base_model(self):
+        """Updates the base model by adding classification layers."""
         self.full_model = self._prepare_full_model(
             model=self.model,
             classes=self.config.params_classes,
@@ -61,13 +55,9 @@ class PrepareBaseModel:
             freeze_till=None,
             learning_rate=self.config.params_learning_rate
         )
+        self.save_model(self.config.updated_base_model_path, self.full_model)
 
-        self.save_model(path=self.config.updated_base_model_path, model=self.full_model)
-
-    
     @staticmethod
     def save_model(path: Path, model: tf.keras.Model):
-        """Saves the model in the recommended Keras format (.keras)."""
-        save_path = str(path.with_suffix(".keras"))  # Ensure saving in .keras format
-        model.save(save_path)
-        print(f"Model saved successfully at: {save_path}")
+        """Saves the model to the given path."""
+        model.save(f"{path}")
